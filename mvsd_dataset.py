@@ -295,7 +295,7 @@ class OpenroomsFF(Dataset):
 
 
 class realworld_FF(Dataset):
-    def __init__(self, dataRoot, cfg, img_w=320, img_h=240):
+    def __init__(self, dataRoot, cfg, img_w=320, img_h=240, outputRoot=None):
         self.img_w = img_w
         self.img_h = img_h
         self.cfg = cfg
@@ -310,7 +310,13 @@ class realworld_FF(Dataset):
               'this must be same with realworld_FF_singleview(netdepth) value! ')
 
         sceneList = sorted(glob.glob(osp.join(dataRoot, '*')))
-        outroot = osp.join(osp.dirname(dataRoot), f'output/{cfg.version}')
+        if outputRoot is None:
+            outroot = osp.join(osp.dirname(dataRoot), f'output/{cfg.version}')
+        else:
+            outroot = osp.join(outputRoot, cfg.version)
+        print(f"read scene from {dataRoot}, {len(sceneList)} in total: {sceneList}")
+        print(f"output to {outroot}")
+
         tmp = []
         index_to_remove = []  #
         for i in range(len(sceneList)):
@@ -347,7 +353,8 @@ class realworld_FF(Dataset):
         for j, scene in enumerate(sceneList):
             if osp.exists(osp.join(scene, 'pair.txt')):
                 # continue
-                pair_file = osp.join(scene, 'pair.txt')
+                pair_file = 'pair.txt'
+                # pair_file = osp.join(scene, 'pair.txt')
                 with open(osp.join(scene, pair_file), 'r') as f:
                     num_viewpoint = int(f.readline().strip())
                     # viewpoints
