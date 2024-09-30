@@ -2,6 +2,7 @@ import glob
 import os
 import random
 import datetime
+import argparse
 
 import torch
 import torch.multiprocessing
@@ -14,6 +15,7 @@ from network.net_backbone import ResUNet
 from utils import *
 from loader import load_model, realworld_FF
 from loss import RecLoss
+from single_view_dataset import SingleViewDataset
 
 
 def load_id_wandb_current(config, record_flag, pretrained_root, output_root, id=None):
@@ -81,6 +83,10 @@ def load_dataloader_current(dataRoot, outputRoot, cfg, is_DDP, phase_list, debug
             else:
                 dataset = realworld_FF(dataRoot, cfg, outputRoot=outputRoot)
             is_shuffle = False
+        elif phase == 'custom_single':
+            dataset = SingleViewDataset(dataRoot, outputRoot, cfg)
+            is_shuffle = False
+            print(f"Use SingleViewDataset, length: {dataset.length}")
         elif phase == 'mat_edit':
             assert False, 'Not implemented'
             dataset = mat_edit_dataset(dataRoot, cfg)
@@ -150,11 +156,20 @@ def test(gpu, num_gpu, run_mode, phase_list,
         torch.distributed.destroy_process_group()
 
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Process input data and configurations.")
+    parser.add_argument('--dataroot', type=str, default='./Examples/input_processed', help='Path to the input data directory')
+    parser.add_argument('--pretrained', type=str, default='pretrained/MAIR', help='Path to the pretrained model')
+    parser.add_argument('--output_root', type=str, default='./out/', help='Path to the output directory')
+    parser.add_argument('--run_id', type=str, default='05190941_VSG', help='Identifier for the run')
+    parser.add_argument('--run_mode', type=str, default='output', help='Mode of operation (e.g., output)')
+    parser.add_argument('--phase_list', type=str, nargs='+', default=['custom'], help='List of phases to process')
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    dataroot = './Examples/input_processed'
-    pretrained = 'pretrained/MAIR'
-    output_root = './out/'
-    run_id = '05190941_VSG'
-    run_mode = 'output'
-    phase_list = ['custom', ]
-    test(0, 1, run_mode, phase_list, dataroot, pretrained, output_root, False, run_id=run_id, config=None)
+    args = parse_arguments()
+    print(f"Arguments: {args}")
+    test(0, 1, args.run_mode, args.phase_list, args.dataroot, args.pretrained, args.output_root,
+         False, run_id=args.run_id, config=None)
