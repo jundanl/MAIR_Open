@@ -7,15 +7,18 @@ import argparse
 import torch
 import torch.multiprocessing
 from torch.utils.data import DataLoader
+from torch.cuda.amp.autocast_mode import autocast
 import socket
 import wandb
 
+import MAIR
 from record import eval_model, output_model
 from network.net_backbone import ResUNet
 from utils import *
 from loader import load_model, realworld_FF
 from loss import RecLoss
 from single_view_dataset import SingleViewDataset
+from model import *
 
 
 def MAIR_new_forward(self, data, cfg, forward_mode='train'):
@@ -203,6 +206,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode='train'):
                 pred['rgb_vsg'] = diffscaled + specscaled
                 return pred, gt
 
+
 def load_id_wandb_current(config, record_flag, pretrained_root, output_root, id=None):
     if (config is None) == (id is None):
         raise Exception('One of the two must be set.')
@@ -322,6 +326,8 @@ def test(gpu, num_gpu, run_mode, phase_list,
     dict_loaders = load_dataloader_current(data_root, output_root, cfg, is_DDP, phase_list)
 
     model = load_model(cfg, gpu, experiment, is_train=False, is_DDP=is_DDP, wandb_obj=wandb_obj)
+    assert isinstance(model, MAIR.MAIRorg), f"model type: {type(model)}, expected: MAIR.MAIRorg"
+    model.forward = MAIR_new_forward.__get__(model)  # bind the method to the model instance
     model.switch_to_eval()
     if dict_loaders is not None:
         for phase in dict_loaders:
