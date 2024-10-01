@@ -222,7 +222,6 @@ def output_model_current(model, loader, gpu, cfg):
             data = tocuda(data, gpu, False)
             pred, gt = model.forward(data, cfg, 'output')
             outname = data['outname'][0]
-            print(outname)
 
             np.save(osp.join(outname, 'cam_hwf.npy'), data['hwf'][0].cpu().numpy())
             np.savez_compressed(osp.join(outname, 'vsg'),
@@ -237,14 +236,15 @@ def output_model_current(model, loader, gpu, cfg):
             saveImage(osp.join(outname, 'color_pred.png'), pred['rgb_vsg'], is_hdr=True)
             saveImage(osp.join(outname, 'diffScaled.png'), pred['diff_vsg'], is_hdr=False)
             saveImage(osp.join(outname, 'specScaled.png'), pred['spec_vsg'], is_hdr=False)
+            assert pred['e_vsg'].shape[0] == 1, f"batch size is not 1, {pred['e_vsg'].shape}"
             envmapsPredImage = pred['e_vsg'][0].float().data.cpu().numpy()
             envmapsPredImage = envmapsPredImage.transpose([1, 2, 3, 4, 0])  # img_h, img_w, env_h, env_w, 3
             np.savez_compressed(osp.join(outname, 'env'),
                                 env=np.ascontiguousarray(envmapsPredImage[:, :, :, :, ::-1]))
             # writeEnvToFile(pred['e_vsg'].float(), 0, osp.join(outname, 'envmaps.png'), nrows=12, ncols=8)
-            vis_env_map = env_util.visualize_pixelwise_env_maps(pred['e_vsg'].float()[0], nrows=12, ncols=8, gap=1,
-                                                                rescale=False,
-                                                                rgb2srgb=True,
+            vis_env_map = env_util.visualize_pixelwise_env_maps(pred['e_vsg'].float()[0], nrows=24, ncols=16, gap=1,
+                                                                rescale=True,
+                                                                rgb2srgb=False,
                                                                 output_type="numpy")
             vis_env_map = (vis_env_map.clip(min=0.0, max=1.0) * 255).astype(np.uint8)
             cv2.imwrite(osp.join(outname, 'envmaps.png'), vis_env_map[:, :, ::-1])
@@ -411,7 +411,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Process input data and configurations.")
     parser.add_argument('--dataroot', type=str, default='./Examples/input_processed', help='Path to the input data directory')
     parser.add_argument('--pretrained', type=str, default='pretrained/MAIR', help='Path to the pretrained model')
-    parser.add_argument('--output_root', type=str, default='./out/', help='Path to the output directory')
+    parser.add_argument('--output_root', type=str, default='./out/02_tonemap_envmap', help='Path to the output directory')
     parser.add_argument('--run_id', type=str, default='05190941_VSG', help='Identifier for the run')
     parser.add_argument('--run_mode', type=str, default='output', help='Mode of operation (e.g., output)')
     parser.add_argument('--phase_list', type=str, nargs='+', default=['custom'], help='List of phases to process')
