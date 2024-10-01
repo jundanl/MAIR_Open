@@ -26,7 +26,11 @@ openrooms_utils_path = "./openrooms_utils"
 sys.path.append(openrooms_utils_path)
 from openrooms_utils import env_util
 
-def MAIR_new_forward(self, data, cfg, forward_mode='train'):
+
+def MAIR_new_forward(self, data, cfg, forward_mode):
+    assert cfg.d_type == "cds" and cfg.mode == "VSG" and cfg.VSGEncoder.src_type == "exi" and forward_mode == "output", \
+        "Only support cds, VSG, exi, output"
+
     with autocast(enabled=cfg.autocast):
         empty = torch.tensor([], device=data['i'].device)
         pred = {}
@@ -44,6 +48,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode='train'):
         n, d, _, _ = self.MGNet(data['i'], data['cds_dn'], data['cds_conf'], data['cds_dg'])
 
         if cfg.d_type == 'net':
+            assert False, 'd_type net not implemented'
             d = d / torch.amax(d, dim=[1, 2, 3], keepdim=True)
             c = empty
         elif cfg.d_type == 'cds':
@@ -51,6 +56,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode='train'):
             c = data['cds_conf']
         ### end mode incident
         if cfg.mode == 'incident':
+            assert False, 'mode incident not implemented'
             axis, sharp, intensity, pred['vis'], pred['e_d'] = self.InLightSG(data['i'], d, c, n, empty, empty,
                                                                               empty, mode=0)
             pred['vis'] = pred['vis'][:, :, 0, :, :, None, None]
@@ -98,11 +104,13 @@ def MAIR_new_forward(self, data, cfg, forward_mode='train'):
         if cfg.RefineNet.use:
             a, r, _ = self.RefineNet(data['i'], d, c, n, brdf_feat)
         else:
+            assert False, 'not implemented'
             brdf_feat = F.interpolate(brdf_feat, scale_factor=2.0, mode='bilinear')
             a = 0.5 * (torch.clamp(1.01 * torch.tanh(brdf_feat[:, :3]), -1, 1) + 1)
             r = 0.5 * (torch.clamp(1.01 * torch.tanh(brdf_feat[:, 3:]), -1, 1) + 1)
         ### end mode BRDF
         if cfg.mode == 'BRDF':
+            assert False, 'mode BRDF not implemented'
             pred['a'], pred['r'] = a, r
             return pred, gt, get_mask_dict('default', mask)
 
@@ -119,10 +127,12 @@ def MAIR_new_forward(self, data, cfg, forward_mode='train'):
             del vsg_tmp1, vsg_tmp2
 
         elif cfg.VSGEncoder.src_type == 'inci':
+            assert False, 'VSGEncoder src_type inci not implemented'
             DL_flatten = F.interpolate(DL_flat, scale_factor=2, mode='nearest')
             source = torch.cat([source, DL_flatten], dim=1)
             VSG_DL = None
         elif cfg.VSGEncoder.src_type == 'none':
+            assert False, 'VSGEncoder src_type none not implemented'
             VSG_DL = torch.zeros([1, 8, 32, 32, 32], dtype=a.dtype, device=a.device)
         vsg_in = get_visible_surface_volume(data['voxel_grid_front'], source, data['cam'])
         vsg = self.VSGEncoder(vsg_in, VSG_DL)  # normal
@@ -139,26 +149,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode='train'):
         cam_coord = (d_low[:, 0, ..., None, None] * torch.inverse(cam_mat[:, None, None]) @ pixels)[..., None, :, 0]
         ls_rdf = (N2C.unsqueeze(-3) @ self.ls).squeeze(-1) * self.rub_to_rdf
         if forward_mode == 'train':
-            assert Bn == 1
-            nonzero_idxs = torch.nonzero(mask[0, 0, :, :])
-            idxs = nonzero_idxs[torch.randperm(nonzero_idxs.size(0))[:cfg.num_of_samples]]
-            gt['e'] = gt['e'][:, :, idxs[:, 0], idxs[:, 1], :, :][:, :, None]
-            ls_rdf = ls_rdf[:, idxs[:, 0], idxs[:, 1]][:, None]
-            cam_coord = cam_coord[:, idxs[:, 0], idxs[:, 1]]
-            cam_coord = cam_coord.repeat(1, 1, ls_rdf.shape[-2], 1)[:, None]
-            mask = torch.ones([1, 1, 1, cam_coord.shape[2]], device=cam_coord.device, dtype=cam_coord.dtype)
-            if cam_coord.shape[2] < cfg.num_of_samples:
-                pad = torch.zeros([1, 1, cfg.num_of_samples - cam_coord.shape[2], ls_rdf.shape[-2], 3],
-                                  device=cam_coord.device, dtype=cam_coord.dtype)
-                cam_coord = torch.cat([cam_coord, pad], dim=2)
-                ls_rdf = torch.cat([ls_rdf, pad + 0.1], dim=2)
-
-                pad = torch.zeros([1, 1, 1, cfg.num_of_samples - mask.shape[3]],
-                                  device=cam_coord.device, dtype=cam_coord.dtype)
-                mask = torch.cat([mask, pad], dim=3)
-
-            pred['e'] = envmapfromVSG(vsg, cam_coord, ls_rdf, self.r_dist, data['bb'], cfg.sg_order)
-            return pred, gt, get_mask_dict('env', mask[:, 0, ..., None, None])
+            assert False, 'not implemented'
         elif forward_mode == 'test' or forward_mode == 'output':
             chunk = 10000
             bn, h, w, l, _ = ls_rdf.shape
@@ -184,6 +175,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode='train'):
                                                              diffuse, specular, mask, scale_type=1)
 
             if forward_mode == 'test':
+                assert False, 'not implemented'
                 pred['e'] = pred_env_vsg
                 pred['rgb'] = torch.clamp(diffscaled + specscaled, 0, 1.0)
                 gt['rgb'] = self.re_arr(all_rgb)
