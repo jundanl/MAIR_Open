@@ -2,12 +2,13 @@ import os
 import glob
 import os.path as osp
 
+import numpy as np
 from torch.utils.data import Dataset
 
 from utils import *
 
 
-class realworld_FF(Dataset):
+class realworld_FF_single_view(Dataset):
     def __init__(self, dataRoot, cfg, img_w=320, img_h=240, outputRoot=None):
         self.img_w = img_w
         self.img_h = img_h
@@ -40,13 +41,13 @@ class realworld_FF(Dataset):
             del sceneList[index]
         sceneList += tmp
 
-        all_idx = []
-        for i in range(9):
-            all_idx.append(str(i + 1))
-        all_idx.remove('5')
+        # all_idx = []
+        # for i in range(9):
+        #     all_idx.append(str(i + 1))
+        # all_idx.remove('5')
 
         self.nameList = []
-        self.idx_list = []
+        # self.idx_list = []
         self.is_real = []
         self.outname = []
 
@@ -80,22 +81,24 @@ class realworld_FF(Dataset):
                             continue
                         # filter by no src view and fill to nviews
                         src_views = src_views[:8]
+                        del src_views
 
                         outfilename_org = osp.join(outroot, osp.basename(scene))
                         outfilename = f'{outfilename_org}_{(ref_view + 1):03d}'
                         os.makedirs(outfilename, exist_ok=True)
-                        if cfg.version == 'MAIR++':
-                            if len(os.listdir(outfilename)) == 20:
-                                continue
-                        if cfg.version == 'MAIR':
-                            if len(os.listdir(outfilename)) == 12:
-                                continue
+                        # if cfg.version == 'MAIR++':
+                        #     if len(os.listdir(outfilename)) == 20:
+                        #         continue
+                        # if cfg.version == 'MAIR':
+                        #     if len(os.listdir(outfilename)) == 12:
+                        #         continue
                         self.nameList.append(scene + '$' + str(ref_view + 1))
-                        self.idx_list.append(list(map(lambda x: str(x + 1), src_views)))
+                        # self.idx_list.append(list(map(lambda x: str(x + 1), src_views)))
                         self.is_real.append(True)
                         self.outname.append(outfilename)
 
             else:
+                assert False, 'not implemented'
                 a = sorted(list(set([b.split('_')[0] for b in os.listdir(scene)])))
                 for t in a:
                     outfilename_org = osp.join(outroot, osp.basename(osp.dirname(scene)) + '_' + osp.basename(scene))
@@ -118,12 +121,12 @@ class realworld_FF(Dataset):
 
     def __getitem__(self, ind):
         batch = {}
-        training_idx = self.idx_list[ind].copy()
+        # training_idx = self.idx_list[ind].copy()
         is_real = self.is_real[ind]
         batch['outname'] = self.outname[ind]
         if is_real:
             scene, target_idx = self.nameList[ind].split('$')
-            all_idx = [target_idx, ] + training_idx
+            all_idx = [target_idx, ] #+ training_idx
             name_list = [osp.join(scene, 'images_320x240', '{}_' + f'{int(a):03d}' + '.{}') for a in all_idx]
             cam_name = osp.join(scene, 'images_320x240/cam_mats.npy')
 
@@ -133,6 +136,7 @@ class realworld_FF(Dataset):
 
             cam_mats = np.load(cam_name)
         else:
+            assert False, 'not implemented'
             scene, scene_idx = self.nameList[ind].split('$')
             target_idx = '5'
             all_idx = [target_idx, ] + training_idx
@@ -156,6 +160,7 @@ class realworld_FF(Dataset):
 
         cds_conf_name = name_list[0].format('cdsconf', 'dat')
         cds_conf = loadImage(cds_conf_name, 'd', self.size, normalize=False).transpose([2, 0, 1])
+        # cds_conf = np.ones((1, self.size[1], self.size[0]), dtype=np.float32)
         batch['cds_conf'] = cds_conf
 
         if self.max_depth_type == 'pose':
