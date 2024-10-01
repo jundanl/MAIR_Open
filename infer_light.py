@@ -3,6 +3,7 @@ import os
 import random
 import datetime
 import argparse
+import sys
 
 import torch
 import torch.multiprocessing
@@ -10,9 +11,10 @@ from torch.utils.data import DataLoader
 from torch.cuda.amp.autocast_mode import autocast
 import socket
 import wandb
+from tqdm import tqdm
 
 import MAIR
-from record import eval_model, output_model
+from record import eval_model
 from network.net_backbone import ResUNet
 from utils import *
 from loader import load_model, realworld_FF
@@ -20,6 +22,9 @@ from loss import RecLoss
 from single_view_dataset import SingleViewDataset
 from model import *
 
+openrooms_utils_path = "./openrooms_utils"
+sys.path.append(openrooms_utils_path)
+from openrooms_utils import env_util
 
 def MAIR_new_forward(self, data, cfg, forward_mode='train'):
     with autocast(enabled=cfg.autocast):
@@ -210,31 +215,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode='train'):
 @torch.no_grad()
 def output_model_current(model, loader, gpu, cfg):
     if cfg.mode == 'MG':
-        thresholds = [round(0.9 - 0.1 * i, 1) for i in range(10)]
-
-        def get_confidence_mask(mask, conf, thresholds):
-            for thresh in thresholds:
-                conf_mask = mask * (conf > thresh).float()
-                if conf_mask.sum() >= 1000:
-                    if thresh != 0.9:
-                        print(thresh)
-                    break
-                else:
-                    print(conf_mask.sum())
-            return conf_mask
-
-        for i, data in enumerate(tqdm(loader)):
-            names = data['name']
-            data = tocuda(data, gpu, False)
-            pred, gt, masks = model.forward(data, cfg, 'output')
-            masks = masks['default'][0]
-            for name, mask, depth, cds_depth, cds_conf in zip(names, masks, pred['d'], data['cds_depth'],
-                                                              data['cds_conf']):
-                conf_mask = get_confidence_mask(mask, cds_conf, thresholds)
-                si_depth, sc = LSregress(depth, cds_depth, depth, conf_mask)
-                # print(sc)
-                saveBinary(name, si_depth.cpu().numpy()[0])
-
+        assert False, "Not implemented"
     else:
         for i, data in enumerate(tqdm(loader)):
             # names = data['name']
@@ -248,21 +229,28 @@ def output_model_current(model, loader, gpu, cfg):
                                 vsg=np.ascontiguousarray(pred['vsg'][0].float().data.cpu().numpy()),
                                 scale=pred['vsg'][1])
 
-            saveImage(osp.join(outname, 'albedo.png'), pred['a'], is_hdr=True)
+            saveImage(osp.join(outname, 'albedo.png'), pred['a'], is_hdr=False)  # is_hdr: do rgb_to_srgb conversion
             saveImage(osp.join(outname, 'normal.png'), 0.5 * (pred['n'] + 1), is_hdr=False)
             saveImage(osp.join(outname, 'rough.png'), pred['r'], is_hdr=False, is_single=True)
             saveImage(osp.join(outname, 'depth.png'), pred['d'], is_hdr=False, is_single=True)
             saveImage(osp.join(outname, 'color_gt.png'), data['i'], is_hdr=True)
             saveImage(osp.join(outname, 'color_pred.png'), pred['rgb_vsg'], is_hdr=True)
-            saveImage(osp.join(outname, 'diffScaled.png'), pred['diff_vsg'], is_hdr=True)
-            saveImage(osp.join(outname, 'specScaled.png'), pred['spec_vsg'], is_hdr=True)
+            saveImage(osp.join(outname, 'diffScaled.png'), pred['diff_vsg'], is_hdr=False)
+            saveImage(osp.join(outname, 'specScaled.png'), pred['spec_vsg'], is_hdr=False)
             envmapsPredImage = pred['e_vsg'][0].float().data.cpu().numpy()
-            envmapsPredImage = envmapsPredImage.transpose([1, 2, 3, 4, 0])
+            envmapsPredImage = envmapsPredImage.transpose([1, 2, 3, 4, 0])  # img_h, img_w, env_h, env_w, 3
             np.savez_compressed(osp.join(outname, 'env'),
                                 env=np.ascontiguousarray(envmapsPredImage[:, :, :, :, ::-1]))
-            writeEnvToFile(pred['e_vsg'].float(), 0, osp.join(outname, 'envmaps.png'), nrows=12, ncols=8)
+            # writeEnvToFile(pred['e_vsg'].float(), 0, osp.join(outname, 'envmaps.png'), nrows=12, ncols=8)
+            vis_env_map = env_util.visualize_pixelwise_env_maps(pred['e_vsg'].float()[0], nrows=12, ncols=8, gap=1,
+                                                                rescale=False,
+                                                                rgb2srgb=True,
+                                                                output_type="numpy")
+            vis_env_map = (vis_env_map.clip(min=0.0, max=1.0) * 255).astype(np.uint8)
+            cv2.imwrite(osp.join(outname, 'envmaps.png'), vis_env_map[:, :, ::-1])
 
             if cfg.version == 'MAIR++':
+                assert False, "Not implemented"
                 saveImage(osp.join(outname, 'albedo_single.png'), pred['a_s'], is_hdr=True)
                 saveImage(osp.join(outname, 'rough_single.png'), pred['r_s'], is_hdr=False, is_single=True)
                 saveImage(osp.join(outname, 'color_pred_ilr.png'), pred['rgb_ilr'], is_hdr=True)
@@ -404,7 +392,8 @@ def test(gpu, num_gpu, run_mode, phase_list,
         for phase in dict_loaders:
             data_loader, _ = dict_loaders[phase]
             if run_mode == 'output':
-                output_model(model, data_loader, gpu, cfg)
+                output_model_current(model, data_loader, gpu, cfg)
+                # output_model(model, data_loader, gpu, cfg)
 
             if run_mode == 'test':
                 cfg.losskey.append('rgb')
