@@ -158,9 +158,9 @@ class realworld_FF_single_view(Dataset):
         batch['i'] = im
         batch['m'] = np.ones_like(im[:1])
 
-        cds_conf_name = name_list[0].format('cdsconf', 'dat')
-        cds_conf = loadImage(cds_conf_name, 'd', self.size, normalize=False).transpose([2, 0, 1])
-        # cds_conf = np.ones((1, self.size[1], self.size[0]), dtype=np.float32)
+        # cds_conf_name = name_list[0].format('cdsconf', 'dat')
+        # cds_conf = loadImage(cds_conf_name, 'd', self.size, normalize=False).transpose([2, 0, 1])
+        cds_conf = np.ones((1, self.size[1], self.size[0]), dtype=np.float32)
         batch['cds_conf'] = cds_conf
 
         if self.max_depth_type == 'pose':
