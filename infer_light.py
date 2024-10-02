@@ -28,6 +28,22 @@ from openrooms_utils import env_util
 
 
 def MAIR_new_forward(self, data, cfg, forward_mode):
+    """
+
+    Args:
+        self:
+        data:
+            data['i']: input image, linear RGB
+            data['cds_conf']: confidence map
+            data['cds_dn']: depth map, normalized to [0, 1]
+            data['cds_dg']: depth gradient
+        cfg:
+        forward_mode:
+
+    Returns:
+
+    """
+
     assert cfg.d_type == "cds" and cfg.mode == "VSG" and cfg.VSGEncoder.src_type == "exi" and forward_mode == "output", \
         "Only support cds, VSG, exi, output"
 
@@ -37,6 +53,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode):
         gt = {k: data[k] for k in set(cfg.losskey) & set(data)}
         mask = data.pop('m')
         if 'e' in gt or 'e_d' in gt:
+            assert False, "code not checked"
             Bn, env_rows, env_cols, _, _ = gt.get('e', gt.get('e_d')).shape
             mask = F.adaptive_avg_pool2d(mask, (env_rows, env_cols))
             if 'e' in gt:
@@ -54,9 +71,11 @@ def MAIR_new_forward(self, data, cfg, forward_mode):
         elif cfg.d_type == 'cds':
             d = data['cds_dn']
             c = data['cds_conf']
+        else:
+            assert False, f"cfg d_type: {cfg.d_type} not checked"
         ### end mode incident
         if cfg.mode == 'incident':
-            assert False, 'mode incident not implemented'
+            assert False, 'mode incident not checked'
             axis, sharp, intensity, pred['vis'], pred['e_d'] = self.InLightSG(data['i'], d, c, n, empty, empty,
                                                                               empty, mode=0)
             pred['vis'] = pred['vis'][:, :, 0, :, :, None, None]
@@ -66,6 +85,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode):
                                                             cfg.VSGEncoder.src_type == 'train')):
             VSG_DL = self.ExDLVSG(data['i'], d, c, n)
             if cfg.mode == 'exitant':
+                assert False, 'mode exitant not checked'
                 cam_mat = data['cam'] / (cfg.imWidth / env_cols)
                 cam_mat[:, -1, -1] = 1.0
                 pixels_DL = self.pixels[:, :env_rows, :env_cols]
@@ -91,8 +111,8 @@ def MAIR_new_forward(self, data, cfg, forward_mode):
 
         bn, h_, w_, v_, _ = all_rgb.shape
         n_low = F.adaptive_avg_pool2d(n, (axis.shape[-2], axis.shape[-1])).permute([0, 2, 3, 1])
-        N2C = get_N2C(F.normalize(n_low, p=2.0, dim=-1), self.up)
-        axis_cam = torch.einsum('bhwqp,bsphw->bsqhw', N2C, axis)
+        N2C = get_N2C(F.normalize(n_low, p=2.0, dim=-1), self.up)  # transformation matrix from surface coordinate to camera coordinate system
+        axis_cam = torch.einsum('bhwqp,bsphw->bsqhw', N2C, axis)  # axis in camera coordinate system
         DL_flat = F.interpolate(
             torch.cat([axis_cam, sharp, intensity], dim=2).reshape(bn, -1, axis.shape[-2], axis.shape[-1]),
             scale_factor=4, mode='nearest')
@@ -104,19 +124,21 @@ def MAIR_new_forward(self, data, cfg, forward_mode):
         if cfg.RefineNet.use:
             a, r, _ = self.RefineNet(data['i'], d, c, n, brdf_feat)
         else:
-            assert False, 'not implemented'
+            assert False, 'code not checked'
             brdf_feat = F.interpolate(brdf_feat, scale_factor=2.0, mode='bilinear')
             a = 0.5 * (torch.clamp(1.01 * torch.tanh(brdf_feat[:, :3]), -1, 1) + 1)
             r = 0.5 * (torch.clamp(1.01 * torch.tanh(brdf_feat[:, 3:]), -1, 1) + 1)
         ### end mode BRDF
         if cfg.mode == 'BRDF':
-            assert False, 'mode BRDF not implemented'
+            assert False, 'mode BRDF not checked'
             pred['a'], pred['r'] = a, r
             return pred, gt, get_mask_dict('default', mask)
 
         assert a.shape[0] == 1
         if forward_mode == 'output':
             env_rows, env_cols, env_w, env_h = self.envRows, self.envCols, self.env_width, self.env_height
+        else:
+            assert False, "Code not checked"
 
         source = torch.cat([data['i'], d, c, n, a, r], dim=1)
         if cfg.VSGEncoder.src_type == 'exi' or cfg.VSGEncoder.src_type == 'train':
@@ -134,6 +156,8 @@ def MAIR_new_forward(self, data, cfg, forward_mode):
         elif cfg.VSGEncoder.src_type == 'none':
             assert False, 'VSGEncoder src_type none not implemented'
             VSG_DL = torch.zeros([1, 8, 32, 32, 32], dtype=a.dtype, device=a.device)
+        else:
+            assert False, "Code not checked"
         vsg_in = get_visible_surface_volume(data['voxel_grid_front'], source, data['cam'])
         vsg = self.VSGEncoder(vsg_in, VSG_DL)  # normal
         vsg_alpha = 0.5 * (torch.clamp(1.01 * torch.tanh(vsg[:, -1]), -1, 1) + 1)
@@ -404,7 +428,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Process input data and configurations.")
     parser.add_argument('--dataroot', type=str, default='./Examples/input_processed', help='Path to the input data directory')
     parser.add_argument('--pretrained', type=str, default='pretrained/MAIR', help='Path to the pretrained model')
-    parser.add_argument('--output_root', type=str, default='./out/03_single_view_01_confidence_1', help='Path to the output directory')
+    parser.add_argument('--output_root', type=str, default='./out/03_single_view_02_adaptive_depth_range', help='Path to the output directory')
     parser.add_argument('--run_id', type=str, default='05190941_VSG', help='Identifier for the run')
     parser.add_argument('--run_mode', type=str, default='output', help='Mode of operation (e.g., output)')
     parser.add_argument('--phase_list', type=str, nargs='+', default=['custom'], help='List of phases to process')

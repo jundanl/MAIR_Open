@@ -18,7 +18,7 @@ class realworld_FF_single_view(Dataset):
         self.size = (img_w, img_h)
 
         # colmap depth is so big compared to openrooms(meter)
-        self.max_depth_type = 'pose'
+        self.max_depth_type = 'adaptive'
         self.depth_max_scale = 10.0
         print(self.max_depth_type, self.depth_max_scale,
               'this must be same with realworld_FF_singleview(netdepth) value! ')
@@ -96,7 +96,6 @@ class realworld_FF_single_view(Dataset):
                         # self.idx_list.append(list(map(lambda x: str(x + 1), src_views)))
                         self.is_real.append(True)
                         self.outname.append(outfilename)
-
             else:
                 assert False, 'not implemented'
                 a = sorted(list(set([b.split('_')[0] for b in os.listdir(scene)])))
@@ -124,19 +123,21 @@ class realworld_FF_single_view(Dataset):
         # training_idx = self.idx_list[ind].copy()
         is_real = self.is_real[ind]
         batch['outname'] = self.outname[ind]
+
+        # Load the input image and camera matrix
         if is_real:
             scene, target_idx = self.nameList[ind].split('$')
             all_idx = [target_idx, ] #+ training_idx
             name_list = [osp.join(scene, 'images_320x240', '{}_' + f'{int(a):03d}' + '.{}') for a in all_idx]
             cam_name = osp.join(scene, 'images_320x240/cam_mats.npy')
-
+            # Read the input image
             im = cv2.imread(name_list[0].format('im', 'png'), cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
             im = im[..., ::-1].astype(np.float32) / 255.0
-            im = ldr2hdr(im).transpose([2, 0, 1])
-
+            im = ldr2hdr(im).transpose([2, 0, 1])  # to linear RGB
+            # Read the camera matrix
             cam_mats = np.load(cam_name)
         else:
-            assert False, 'not implemented'
+            assert False, "code not checked"
             scene, scene_idx = self.nameList[ind].split('$')
             target_idx = '5'
             all_idx = [target_idx, ] + training_idx
@@ -154,31 +155,48 @@ class realworld_FF_single_view(Dataset):
             cam_mats = np.load(cam_name)
             h, w, f = cam_mats[:, 4, 0]
             cam_mats[:, 4, :] = cam_mats[:, 4, :] / (w / self.size[0])
+        batch['i'] = im  # input image
+        batch['m'] = np.ones_like(im[:1])  # mask
 
-        batch['i'] = im
-        batch['m'] = np.ones_like(im[:1])
-
+        # Load confidence map
         # cds_conf_name = name_list[0].format('cdsconf', 'dat')
         # cds_conf = loadImage(cds_conf_name, 'd', self.size, normalize=False).transpose([2, 0, 1])
         cds_conf = np.ones((1, self.size[1], self.size[0]), dtype=np.float32)
-        batch['cds_conf'] = cds_conf
+        batch['cds_conf'] = cds_conf  # confidence map
 
+        # Load depth map
+        cds_depth_name = name_list[0].format('cdsdepthest', 'dat')
+        cds_depth = loadImage(cds_depth_name, 'd', self.size, normalize=False).transpose([2, 0, 1])  # depth map
         if self.max_depth_type == 'pose':
             # mvsd_pose : for openrooms or for oi and real-world
             max_depth = cam_mats[1, -1, int(target_idx) - 1].astype(np.float32)
+            # min_depth = cam_mats[0, -1, int(target_idx) - 1].astype(np.float32)
+            # print(f"loaded max_depth: {max_depth}, min_depth: {min_depth}")
         elif self.max_depth_type == 'est':
             # mvsd_est : for ir and real-world
             target_conf = loadBinary(name_list[0].format('cdsconf', 'dat'))
             target_conf = target_conf > 0.6
             target_depth = loadBinary(name_list[0].format('cdsdepthest', 'dat'))
             max_depth = np.max(target_conf * target_depth)
-
-        cds_depth_name = name_list[0].format('cdsdepthest', 'dat')
-        cds_depth = loadImage(cds_depth_name, 'd', self.size, normalize=False).transpose([2, 0, 1])
-        batch['cds_dn'] = np.clip(cds_depth / max_depth, 0, 1)
+        elif self.max_depth_type == 'adaptive':
+            # This computation refers to cds-mvsnet/colmap2mvsnet.py: processing_single_scene_my, Line 392 - Line 397
+            max_ratio = 0.1
+            min_ratio = 0.1
+            zs = cds_depth.flatten()
+            zs_sorted = np.sort(zs)  # small to large
+            num_max = max(5, int(len(zs) * max_ratio))
+            num_min = max(1, int(len(zs) * min_ratio))
+            max_depth = 1.0 * sum(zs_sorted[-num_max:]) / len(zs_sorted[-num_max:])
+            min_depth = 1.0 * sum(zs_sorted[:num_min]) / len(zs_sorted[:num_min])
+            cam_mats[1, -1, int(target_idx) - 1] = max_depth
+            cam_mats[0, -1, int(target_idx) - 1] = min_depth
+            # print(f"adaptive max depth: {depth_max}, min depth: {depth_min}")
+        else:
+            assert False, f"unknown max_depth_type: {self.max_depth_type}"
+        batch['cds_dn'] = np.clip(cds_depth / max_depth, 0, 1)  # normalized depth map
         grad_x = cv2.Sobel(batch['cds_dn'][0], -1, 1, 0)
         grad_y = cv2.Sobel(batch['cds_dn'][0], -1, 0, 1)
-        batch['cds_dg'] = cv2.addWeighted(grad_x, 0.5, grad_y, 0.5, 0)[None]
+        batch['cds_dg'] = cv2.addWeighted(grad_x, 0.5, grad_y, 0.5, 0)[None]  # depth gradient
 
         poses_hwf_bounds = cam_mats[..., int(target_idx) - 1]
         h, w, f = poses_hwf_bounds[:, -2]
@@ -212,6 +230,7 @@ class realworld_FF_single_view(Dataset):
                 im = cv2.resize(im, self.env_size, interpolation=cv2.INTER_AREA)
                 im = ldr2hdr(im[..., ::-1].astype(np.float32) / 255.0)
             else:
+                assert False, "Code not checked"
                 im = loadImage(name.format('im', self.hdr_postfix), 'i', self.env_size)
                 im = np.clip(im * scale, 0, 1.0)
             rgb_list.append(im)
@@ -228,6 +247,7 @@ class realworld_FF_single_view(Dataset):
                 depth = loadImage(name.format('cdsdepthest', 'dat'), 'd', self.env_size, False)
                 depth = depth / depth_scale
             elif self.d_type == 'net':
+                assert False, "Code not checked"
                 # netdepth is already divided by depth scale.
                 depth = loadImage(name.format('netdepth', 'dat'), 'd', self.env_size, False)
             depthest_list.append(depth)
