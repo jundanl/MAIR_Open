@@ -62,8 +62,9 @@ def MAIR_new_forward(self, data, cfg, forward_mode):
                 mask = (mask > 0.9).float()
 
         assert data['i'].shape[1:] == (3, 240, 320)
-        n, d, _, _ = self.MGNet(data['i'], data['cds_dn'], data['cds_conf'], data['cds_dg'])
 
+        # Estimate surface normal and depth
+        n, d, _, _ = self.MGNet(data['i'], data['cds_dn'], data['cds_conf'], data['cds_dg'])
         if cfg.d_type == 'net':
             assert False, 'd_type net not implemented'
             d = d / torch.amax(d, dim=[1, 2, 3], keepdim=True)
@@ -73,6 +74,7 @@ def MAIR_new_forward(self, data, cfg, forward_mode):
             c = data['cds_conf']
         else:
             assert False, f"cfg d_type: {cfg.d_type} not checked"
+
         ### end mode incident
         if cfg.mode == 'incident':
             assert False, 'mode incident not checked'
@@ -428,7 +430,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Process input data and configurations.")
     parser.add_argument('--dataroot', type=str, default='./Examples/input_processed', help='Path to the input data directory')
     parser.add_argument('--pretrained', type=str, default='pretrained/MAIR', help='Path to the pretrained model')
-    parser.add_argument('--output_root', type=str, default='./out/03_single_view_02_adaptive_depth_range', help='Path to the output directory')
+    parser.add_argument('--output_root', type=str, default='./out/03_single_view_04_fix_cam', help='Path to the output directory')
     parser.add_argument('--run_id', type=str, default='05190941_VSG', help='Identifier for the run')
     parser.add_argument('--run_mode', type=str, default='output', help='Mode of operation (e.g., output)')
     parser.add_argument('--phase_list', type=str, nargs='+', default=['custom'], help='List of phases to process')

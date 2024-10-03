@@ -131,11 +131,13 @@ class realworld_FF_single_view(Dataset):
             name_list = [osp.join(scene, 'images_320x240', '{}_' + f'{int(a):03d}' + '.{}') for a in all_idx]
             cam_name = osp.join(scene, 'images_320x240/cam_mats.npy')
             # Read the input image
+            im_path = name_list[0].format('im', 'png')
             im = cv2.imread(name_list[0].format('im', 'png'), cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
             im = im[..., ::-1].astype(np.float32) / 255.0
-            im = ldr2hdr(im).transpose([2, 0, 1])  # to linear RGB
+            im = ldr2hdr(im).transpose([2, 0, 1])  # to linear RGB. C x H x W
             # Read the camera matrix
-            cam_mats = np.load(cam_name)
+            # cam_mats = np.load(cam_name)
+            cam_mats = None  # config the camera matrix later
         else:
             assert False, "code not checked"
             scene, scene_idx = self.nameList[ind].split('$')
@@ -168,6 +170,7 @@ class realworld_FF_single_view(Dataset):
         cds_depth_name = name_list[0].format('cdsdepthest', 'dat')
         cds_depth = loadImage(cds_depth_name, 'd', self.size, normalize=False).transpose([2, 0, 1])  # depth map
         if self.max_depth_type == 'pose':
+            assert False, "Not load cam_mats anymore."
             # mvsd_pose : for openrooms or for oi and real-world
             max_depth = cam_mats[1, -1, int(target_idx) - 1].astype(np.float32)
             # min_depth = cam_mats[0, -1, int(target_idx) - 1].astype(np.float32)
@@ -188,8 +191,8 @@ class realworld_FF_single_view(Dataset):
             num_min = max(1, int(len(zs) * min_ratio))
             max_depth = 1.0 * sum(zs_sorted[-num_max:]) / len(zs_sorted[-num_max:])
             min_depth = 1.0 * sum(zs_sorted[:num_min]) / len(zs_sorted[:num_min])
-            cam_mats[1, -1, int(target_idx) - 1] = max_depth
-            cam_mats[0, -1, int(target_idx) - 1] = min_depth
+            # cam_mats[1, -1, int(target_idx) - 1] = max_depth
+            # cam_mats[0, -1, int(target_idx) - 1] = min_depth
             # print(f"adaptive max depth: {depth_max}, min depth: {depth_min}")
         else:
             assert False, f"unknown max_depth_type: {self.max_depth_type}"
@@ -198,6 +201,20 @@ class realworld_FF_single_view(Dataset):
         grad_y = cv2.Sobel(batch['cds_dn'][0], -1, 0, 1)
         batch['cds_dg'] = cv2.addWeighted(grad_x, 0.5, grad_y, 0.5, 0)[None]  # depth gradient
 
+        # Set fixed camera matrix and remove other views
+        cam_mats = np.zeros((3, 6, 1), dtype=np.float32)
+        cam_mats[:3, :3, :] = np.eye(3).reshape(3, 3, 1)  # identity rotation
+        cam_mats[:3, 3:4, :] = np.zeros((3, 1, 1))  # zero translation
+        cam_mats[0, 4, :] = batch['i'].shape[1]  # H
+        cam_mats[1, 4, :] = batch['i'].shape[2]  # W
+        cam_mats[0, 5, :] = min_depth
+        cam_mats[1, 5, :] = max_depth
+        cam_mats[2, 4, :] = 225.8  # focal length
+        cam_mats[2, 5, :] = 225.8  # focal length
+        target_idx = 1  # remove other views
+        del all_idx, name_list  # remove other views
+
+        # Camera intrinsics
         poses_hwf_bounds = cam_mats[..., int(target_idx) - 1]
         h, w, f = poses_hwf_bounds[:, -2]
         intrinsic = np.array([[f, 0, w / 2], [0, f, h / 2], [0, 0, 1]], dtype=float).astype(np.float32)
@@ -213,6 +230,7 @@ class realworld_FF_single_view(Dataset):
             z = self.voxel_grid[2] * 1.05
             batch['voxel_grid_front'] = np.stack([x, y, z], axis=-1)
 
+        # Scale the camera matrix
         depth_scale = 1.0
         if is_real:
             # if scene's max depth is larger than depth_max_scale, we scale down depth.
@@ -224,17 +242,22 @@ class realworld_FF_single_view(Dataset):
         rgb_list = []
         depthest_list = []
         fac = self.env_size[1] / self.size[1]
-        for name, idx in zip(name_list, all_idx):
-            if is_real:
-                im = cv2.imread(name.format('im', 'png'), cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
-                im = cv2.resize(im, self.env_size, interpolation=cv2.INTER_AREA)
-                im = ldr2hdr(im[..., ::-1].astype(np.float32) / 255.0)
-            else:
-                assert False, "Code not checked"
-                im = loadImage(name.format('im', self.hdr_postfix), 'i', self.env_size)
-                im = np.clip(im * scale, 0, 1.0)
+        # for name, idx in zip(name_list, all_idx):
+        #     if is_real:
+        #         im = cv2.imread(name.format('im', 'png'), cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
+        #         im = cv2.resize(im, self.env_size, interpolation=cv2.INTER_AREA)
+        #         im = ldr2hdr(im[..., ::-1].astype(np.float32) / 255.0)
+        #     else:
+        #         assert False, "Code not checked"
+        #         im = loadImage(name.format('im', self.hdr_postfix), 'i', self.env_size)
+        #         im = np.clip(im * scale, 0, 1.0)
+        if True:
+            im = cv2.imread(im_path, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
+            im = cv2.resize(im, self.env_size, interpolation=cv2.INTER_AREA)
+            im = ldr2hdr(im[..., ::-1].astype(np.float32) / 255.0)
             rgb_list.append(im)
 
+            idx = 1
             poses_hwf_bounds = cam_mats[..., int(idx) - 1]
             src_c2w_list.append(np34_to_44(poses_hwf_bounds[:, :4]))
             cy2, cx2, fx = poses_hwf_bounds[:, -2]
@@ -244,7 +267,8 @@ class realworld_FF_single_view(Dataset):
             intrinsic = np.array([[fx * fac, 0, cx2 / 2 * fac], [0, fy * fac, cy2 / 2 * fac], [0, 0, 1]], dtype=float)
             src_int_list.append(intrinsic)
             if self.d_type == 'cds':
-                depth = loadImage(name.format('cdsdepthest', 'dat'), 'd', self.env_size, False)
+                # depth = loadImage(name.format('cdsdepthest', 'dat'), 'd', self.env_size, False)
+                depth = loadImage(cds_depth_name, 'd', self.env_size, False)
                 depth = depth / depth_scale
             elif self.d_type == 'net':
                 assert False, "Code not checked"
