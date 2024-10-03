@@ -4,3 +4,6 @@ conda install pytorch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 pytorch-cuda=
 pip install tqdm termcolor scikit-image imageio nvidia-ml-py3 h5py wandb opencv-python trimesh[easy] einops
 pip uninstall numpy
 pip install numpy<2
+pip install matplotlib
+pip install kornia
+pip install kornia[x]
