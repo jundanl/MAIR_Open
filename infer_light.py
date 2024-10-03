@@ -354,6 +354,10 @@ def load_dataloader_current(dataRoot, outputRoot, cfg, is_DDP, phase_list, debug
             dataset = single_view_dataset.realworld_FF_single_view(dataRoot, cfg, outputRoot=outputRoot)
             is_shuffle = False
             print(f"Use realworld_FF_single_view, length: {dataset.length}")
+        elif phase == 'custom_single_view':
+            dataset = single_view_dataset.SingleViewDataset(dataRoot, cfg, outputRoot)
+            is_shuffle = False
+            print(f"Use SingleViewDataset, length: {len(dataset)}")
         elif phase == 'mat_edit':
             assert False, 'Not implemented'
             dataset = mat_edit_dataset(dataRoot, cfg)
@@ -373,7 +377,7 @@ def load_dataloader_current(dataRoot, outputRoot, cfg, is_DDP, phase_list, debug
 
         dict_loader[phase] = [loader, sampler]
         print(f'create dataset - mode {cfg.mode}, shuffle: {is_shuffle}')
-        print(f'{phase} dataset number of sample: {dataset.length}')
+        print(f'{phase} dataset number of sample: {len(dataset)}')
         print(f'{phase} loader number of sample: {len(loader)}')
     return dict_loader
 
@@ -428,9 +432,11 @@ def test(gpu, num_gpu, run_mode, phase_list,
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Process input data and configurations.")
-    parser.add_argument('--dataroot', type=str, default='./Examples/input_processed', help='Path to the input data directory')
+    # parser.add_argument('--dataroot', type=str, default='./Examples/input_processed', help='Path to the input data directory')
+    parser.add_argument('--dataroot', type=str, default='./Examples/LightS_OR_rendered/processed_out/20240926',
+                        help='Path to the input data directory')
     parser.add_argument('--pretrained', type=str, default='pretrained/MAIR', help='Path to the pretrained model')
-    parser.add_argument('--output_root', type=str, default='./out/03_single_view_04_fix_cam', help='Path to the output directory')
+    parser.add_argument('--output_root', type=str, default='./out/05_wild_images', help='Path to the output directory')
     parser.add_argument('--run_id', type=str, default='05190941_VSG', help='Identifier for the run')
     parser.add_argument('--run_mode', type=str, default='output', help='Mode of operation (e.g., output)')
     parser.add_argument('--phase_list', type=str, nargs='+', default=['custom'], help='List of phases to process')
