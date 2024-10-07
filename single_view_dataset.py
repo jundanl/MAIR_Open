@@ -361,8 +361,9 @@ class SingleViewDataset(Dataset):
         # Load depth map
         depth_path = input_img_path.replace("input_srgb.png", "depth.exr")
         depth_map = image_util.read_image(depth_path, "numpy", inf_v=0.0, nan_v=0.0, preserve_alpha=True)[:, :, 0]
-        depth_map = depth_map.clip(min=0.0, max=1000.0)
         depth_map = cv2.resize(depth_map, self.img_size, interpolation=cv2.INTER_AREA)[..., None].transpose([2, 0, 1])  # depth map
+        mask_depth = (depth_map >= self.MIN_VALID_DEPTH) * (depth_map <= self.MAX_VALID_DEPTH)  # remove invalid depth
+        depth_map = depth_map * mask_depth
         if self.max_depth_type == 'adaptive':
             # This computation refers to cds-mvsnet/colmap2mvsnet.py: processing_single_scene_my, Line 392 - Line 397
             max_ratio = 0.1
@@ -386,10 +387,29 @@ class SingleViewDataset(Dataset):
         grad_y = cv2.Sobel(batch['cds_dn'][0], -1, 0, 1)
         batch['cds_dg'] = cv2.addWeighted(grad_x, 0.5, grad_y, 0.5, 0)[None]  # depth gradient
 
+        # Load normal map
+        normal_path = input_img_path.replace("input_srgb.png", "normal.exr")
+        normal_map = image_util.read_image(normal_path, "numpy", inf_v=0.0, nan_v=0.0, preserve_alpha=True)[:, :, :3]
+        mask_normal = (normal_map ** 2).sum(axis=-1) > 1e-3  # H x W
+        normal_map = cv2.resize(normal_map, self.img_size, interpolation=cv2.INTER_AREA).transpose([2, 0, 1])  # normal map. 3 x H x W
+        mask_normal = cv2.resize(mask_normal.astype(np.float32), self.img_size, interpolation=cv2.INTER_AREA)[None]  # mask. 1 x H x W
+        mask_normal = (mask_normal > 0.99).astype(np.float32)
+        normal_map = normal_map * 2.0 - 1.0  # from [0, 1] to [-1, 1]
+        normal_map = normal_map / np.linalg.norm(normal_map, axis=0, keepdims=True).clip(min=1e-6)  # normalize
+        normal_map = normal_map.clip(min=-1.0, max=1.0) * mask_normal  # remove invalid normal
+        batch['normal'] = normal_map
+
+        # Load albedo map
+        albedo_path = input_img_path.replace("input_srgb.png", "albedo.exr")
+        albedo_map = image_util.read_image(albedo_path, "numpy", inf_v=0.0, nan_v=0.0, preserve_alpha=True)[:, :, :3]
+        albedo_map = cv2.resize(albedo_map, self.img_size, interpolation=cv2.INTER_AREA).transpose([2, 0, 1])  # albedo map
+        albedo_map = albedo_map.clip(min=0.0, max=1.0)
+        batch['albedo'] = albedo_map
+
         # Confidence map
         # confidence_map = np.ones((1, self.img_size[1], self.img_size[0]), dtype=np.float32)
-        confidence_map = ((depth_map > self.MIN_VALID_DEPTH) *
-                          (self.MAX_VALID_DEPTH/depth_map.clip(min=1e-6)).clip(min=0, max=1))
+        confidence_map = mask_depth * mask_normal #* self.MAX_VALID_DEPTH/2.0/depth_map.clip(min=1e-6)
+        assert confidence_map.shape[0] == 1, f"confidence_map shape: {confidence_map.shape}"
         batch['cds_conf'] = confidence_map
 
         # Set fixed camera matrix and remove other views
